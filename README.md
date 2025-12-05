@@ -82,3 +82,27 @@ If database has no entry:
 ## 🔧 Setup Instructions
 
 ### Backend
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+
+### Frontend
+cd frontend
+npm install
+npm run dev
+
+
+---
+
+## 📊 Demo Preview
+
+- Percentile charts
+- Salary comparison
+- Fuzzy auto-correct input fields
+- ML-powered predictions
+- Elegant FAANG-grade UI
+
+---
+
+
+
