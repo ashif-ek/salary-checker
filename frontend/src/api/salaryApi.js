@@ -6,7 +6,12 @@ const API = axios.create({
 
 export const fetchInsights = async (job_role, city, experience) => {
   const res = await API.get("/salary/insights", {
-    params: { job_role, city, experience }
+    params: { job_role, city, experience },
   });
-  return res.data; 
+  return res.data;
+};
+
+export const bulkUploadSalaries = async (items) => {
+  const res = await API.post("/salary/bulk", { items });
+  return res.data;
 };

@@ -14,3 +14,13 @@ class SalaryOut(SalaryBase):
 
     class Config:
         orm_mode = True
+
+class SalaryBulkCreate(BaseModel):
+    job_role: str
+    city: str
+    experience_years: int
+    salary_amount: int
+    source: str | None = None
+
+class SalaryBulkRequest(BaseModel):
+    items: list[SalaryBulkCreate]
