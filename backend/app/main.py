@@ -2,13 +2,14 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from .database import SessionLocal, engine, Base
-from . import crud, schemas, models
+from . import crud, schemas
 
-
+# Create DB tables
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Salary Reality Checker API")
 
+# CORS for frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,6 +18,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 def get_db():
     db = SessionLocal()
     try:
@@ -24,19 +26,29 @@ def get_db():
     finally:
         db.close()
 
+
+# ---------------------------- API ROUTES ----------------------------
+
 @app.post("/salary/add", response_model=schemas.SalaryOut)
 def add_salary(data: schemas.SalaryCreate, db: Session = Depends(get_db)):
     return crud.create_salary(db, data)
 
+
 @app.get("/salary/insights")
-def salary_insights(job_role: str, city: str, experience: int,
-                    db: Session = Depends(get_db)):
+def salary_insights(job_role: str, city: str, experience: int, db: Session = Depends(get_db)):
     return crud.get_salary_insights(db, job_role, city, experience)
 
 
-
 @app.post("/salary/bulk")
-def bulk_upload_salaries(payload: schemas.SalaryBulkRequest,
-                         db: Session = Depends(get_db)):
+def bulk_upload_salaries(payload: schemas.SalaryBulkRequest, db: Session = Depends(get_db)):
     count = crud.bulk_create_salaries(db, payload.items)
     return {"inserted": count}
+
+
+# OPTIONAL: ML prediction endpoint
+@app.get("/salary/predict")
+def salary_predict(job_role: str, city: str, experience: int, db: Session = Depends(get_db)):
+    """
+    Uses fuzzy-matching + ML fallback when dataset has gaps.
+    """
+    return crud.get_salary_insights(db, job_role, city, experience)

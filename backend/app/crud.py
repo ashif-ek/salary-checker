@@ -1,86 +1,93 @@
 from sqlalchemy.orm import Session
+
 from .models import Salary
-from . import models
-
-
-def create_salary(db: Session, data):
-    new_salary = Salary(
-        job_role=data.job_role,
-        city=data.city,
-        experience_years=data.experience_years,
-        salary_amount=data.salary_amount,
-        source=getattr(data, "source", None),
-    )
-    db.add(new_salary)
-    db.commit()
-    db.refresh(new_salary)
-    return new_salary
+from .utils.smart_match import best_match
+from .utils.predictor import train_salary_predictor, predict_salary
 
 
 def get_salary_insights(db: Session, job_role: str, city: str, experience: int):
-    """
-    Return salary percentiles for a given job_role / city / experience.
-    If no data is found, return a no_data flag so frontend can handle it safely.
-    """
+    # -------------------------
+    # 1) Prepare lists for smart matching
+    # -------------------------
+    all_roles = [r[0] for r in db.query(Salary.job_role).distinct().all()]
+    all_cities = [c[0] for c in db.query(Salary.city).distinct().all()]
 
+    # Smart match
+    role_match = best_match(job_role, all_roles)
+    city_match = best_match(city, all_cities)
+
+    # If no similar match found → will fallback later
+    if not role_match:
+        role_match = job_role
+    if not city_match:
+        city_match = city
+
+    # -------------------------
+    # 2) LEVEL 1 — exact smart-matched query
+    # -------------------------
     rows = (
         db.query(Salary.salary_amount)
-        .filter(Salary.job_role == job_role)
-        .filter(Salary.city == city)
+        .filter(Salary.job_role == role_match)
+        .filter(Salary.city == city_match)
         .filter(Salary.experience_years == experience)
         .all()
     )
 
-    amounts = [r[0] for r in rows]
+    # -------------------------
+    # 3) LEVEL 2 — match only job role
+    # -------------------------
+    if not rows:
+        rows = (
+            db.query(Salary.salary_amount)
+            .filter(Salary.job_role == role_match)
+            .all()
+        )
 
-    if not amounts:
-        # No data: explicitly tell frontend
-        return {
-            "no_data": True,
-            "message": "No salary data found for this combination.",
-            "p10": None,
-            "p25": None,
-            "p50": None,
-            "p75": None,
-            "p90": None,
+    # -------------------------
+    # 4) LEVEL 3 — use ALL salaries
+    # -------------------------
+    if not rows:
+        rows = db.query(Salary.salary_amount).all()
+
+    # If STILL nothing → DB empty
+    if not rows:
+        return {"no_data": True, "message": "Dataset empty"}
+
+    values = [r[0] for r in rows]
+    values.sort()
+    n = len(values)
+
+    def pct(p):
+        i = int(p * (n - 1))
+        return values[i]
+
+    # -------------------------
+    # 5) Train ML model for fallback prediction
+    # -------------------------
+    raw_data = db.query(Salary).all()
+    formatted = [
+        {
+            "experience_years": item.experience_years,
+            "salary_amount": item.salary_amount,
         }
+        for item in raw_data
+    ]
 
-    amounts.sort()
-    n = len(amounts)
-
-    def percentile(prob: float) -> int:
-        """
-        prob: 0.10, 0.25, 0.50, 0.75, 0.90
-        Uses nearest-rank on sorted list.
-        """
-        if n == 1:
-            return amounts[0]
-        idx = int(round(prob * (n - 1)))
-        idx = max(0, min(idx, n - 1))
-        return amounts[idx]
+    model = train_salary_predictor(formatted)
+    predicted_salary = predict_salary(model, experience)
 
     return {
         "no_data": False,
-        "message": None,
-        "p10": percentile(0.10),
-        "p25": percentile(0.25),
-        "p50": percentile(0.50),
-        "p75": percentile(0.75),
-        "p90": percentile(0.90),
+        "fallback_mode":
+            "exact" if len(rows) == n else
+            "role_only" if role_match else
+            "global",
+
+        "prediction": predicted_salary,
+
+        "p10": pct(0.10),
+        "p25": pct(0.25),
+        "p50": pct(0.50),
+        "p75": pct(0.75),
+        "p90": pct(0.90),
     }
-
-
-def bulk_create_salaries(db: Session, items):
-    objects = [
-        models.Salary(
-            job_role=item.job_role,
-            city=item.city,
-            experience_years=item.experience_years,
-            salary_amount=item.salary_amount,
-            source=getattr(item, "source", None),
-        )
-        for item in items
-    ]
-    db.bulk_save_objects(objects)
-    db.commit()
-    return len(objects)
